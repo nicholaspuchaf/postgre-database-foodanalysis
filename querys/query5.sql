@@ -1,41 +1,39 @@
--- Ver a correlação entre a quantidade de Gado e a emissão total de gases por país.
--- Útil para achar quais países poderiam servir de modelo para uma pecuária sustentável.
-
-WITH TOTAL_STOCKS AS (
-    SELECT id_area, SUM(value) as total_stocks, year
-    FROM public."Stocks"
-
-    GROUP BY id_area, year
-
+WITH
+-- Soma de cabeças de gado por país e ano
+TOTAL_STOCKS AS (
+  SELECT
+    id_area,
+    year,
+    SUM(value)::double precision AS total_stocks
+  FROM public."Stocks"
+  WHERE value IS NOT NULL
+    AND value <> 'NaN'
+  GROUP BY id_area, year
 ),
-
+-- Soma de emissões de gases por país e ano
 TOTAL_EMISSIONS AS (
-    SELECT id_area, SUM(value) as total_emissions, year
-    FROM public."Emissions"
-    GROUP BY id_area, year
-),
-
-F as (SELECT TOTAL_EMISSIONS.id_area, TOTAL_EMISSIONS.year, TOTAL_EMISSIONS.total_emissions,  TOTAL_STOCKS.total_stocks, TOTAL_STOCKS.year
-From TOTAL_EMISSIONS
-Inner join
-TOTAL_STOCKS
-ON 
-TOTAL_STOCKS.id_area = TOTAL_EMISSIONS.id_area
-AND TOTAL_STOCKS.year = TOTAL_EMISSIONS.year
-WHERE TOTAL_STOCKS.total_stocks IS NOT NULL AND TOTAL_STOCKS.total_stocks != 'NaN'
-
-),
-
-B as (Select F.id_area, corr(total_stocks, total_emissions ) as correlation FROM F 
-GROUP BY F.id_area
- )
-
-Select B.id_area, a.country, B.correlation
-FROM B 
-Inner JOIN 
-public."Area" as a
-ON 
-a.id_area = B.id_area
-ORDER BY correlation
-
-
+  SELECT
+    id_area,
+    year,
+    SUM(value)::double precision AS total_emissions
+  FROM public."Emissions"
+  WHERE value IS NOT NULL
+    AND value <> 'NaN'
+  GROUP BY id_area, year
+)
+SELECT
+  a.country,
+  s.id_area,
+  -- correlação entre o total de gado e emissões ao longo dos anos
+  corr(s.total_stocks, e.total_emissions) AS correlation
+FROM TOTAL_STOCKS s
+JOIN TOTAL_EMISSIONS e
+  ON s.id_area = e.id_area
+ AND s.year    = e.year
+JOIN public."Area" a
+  ON a.id_area = s.id_area
+GROUP BY
+  a.country,
+  s.id_area
+ORDER BY
+  correlation;
