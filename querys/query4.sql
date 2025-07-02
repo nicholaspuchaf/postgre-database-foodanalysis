@@ -1,54 +1,47 @@
--- Coeficiente angular da razão (total de alimentos/fertilizantes), por páis ao longo do tempo
--- analisa quais paises estão aumentando cada vez mais o uso de fertilizantes por kg de alimento.
-
-with Fertilizer_total_year as (
-    Select id_area, sum(value) as total, year
-    From public."Fertilizer_production"
-    group by id_area, year
+WITH
+-- Total de fertilizantes por país e ano
+Fertilizer_total AS (
+  SELECT
+    id_area,
+    year,
+    SUM(value) AS total_fert
+  FROM public."Fertilizer_production"
+  GROUP BY id_area, year
 ),
-
-Production_Total_year as(
-    Select id_area, sum(value) as total, year
-    From public."Production"
-where unit = 't' and value IS NOT NULL AND value != 'NaN'
-    GROUP BY id_area, year
+-- Total de produção de alimentos por país e ano (apenas toneladas válidas)
+Production_total AS (
+  SELECT
+    id_area,
+    year,
+    SUM(value) AS total_prod
+  FROM public."Production"
+  WHERE unit = 't'
+    AND value IS NOT NULL
+    AND value <> 'NaN'
+  GROUP BY id_area, year
 ),
--- SELECT * FROM Production_Total_year
--- SELECT * FROM Fertilizer_total_year
--- SELECT 
--- id_area,
--- Production_Total_year.year,
---     CASE 
---         WHEN LAG(year, 1) OVER (PARTITION BY id_area ORDER BY year) = year - 1 and LAG(total, 1) OVER (PARTITION BY id_area ORDER BY year) != 0.0
---         THEN  total / (LAG(total, 1) OVER (PARTITION BY id_area ORDER BY year))
---         ELSE NULL 
---     END AS ratio
--- FROM 
---     Production_Total_year
--- ORDER BY 
---     id_area;
-F as (SELECT 
-    COALESCE(Fertilizer_total_year.id_area, Production_Total_year.id_area) AS id_area,
-    Production_Total_year.total /Fertilizer_total_year.total  AS ratio,
-Production_Total_year.year as year
-FROM 
-    Production_Total_year
-INNER JOIN 
-    Fertilizer_total_year
-ON 
-   Fertilizer_total_year.id_area = Production_Total_year.id_area and Production_Total_year.year = Fertilizer_total_year.year
-where Fertilizer_total_year.total != 0.0
-),
-
-F2 as (Select id_area, regr_slope(ratio, year) as slope 
-from F 
-Group by id_area 
+-- Cálculo da razão (produção / fertilizante) por país e ano
+Ratio AS (
+  SELECT
+    p.id_area,
+    p.year,
+    p.total_prod::double precision / f.total_fert::double precision AS ratio
+  FROM Production_total p
+  JOIN Fertilizer_total f
+    ON p.id_area = f.id_area
+   AND p.year    = f.year
+  WHERE f.total_fert <> 0
 )
-
-Select Area.country, Area.id_area, F2.slope
-From F2
-Inner join
-public."Area" as Area
-ON 
-Area.id_area = F2.id_Area
-Order by slope
+SELECT
+  a.country,
+  r.id_area,
+  -- aqui já calculamos o coeficiente angular da série (ratio vs year)
+  regr_slope(r.ratio, r.year) AS slope
+FROM Ratio r
+JOIN public."Area" a
+  ON a.id_area = r.id_area
+GROUP BY
+  a.country,
+  r.id_area
+ORDER BY
+  slope;
